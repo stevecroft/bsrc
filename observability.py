@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser(description="Check observability at GBO and (de
 parser.add_argument('source',help="Source name (e.g. LHS1140)")
 parser.add_argument('-date',help="Date (format yyyy-mm-dd)")
 parser.add_argument('-mwa',help="Plot MWA instead of Parkes",action="store_true", default=False)
+parser.add_argument('-ata',help="Plot ATA instead of Parkes",action="store_true", default=False)
 parser.add_argument('-utc',help="Plot UTC instead of PST",action="store_true", default=False)
 parser.add_argument('-pdt',help="Plot PDT instead of PST",action="store_true", default=False)
 args = parser.parse_args()
@@ -21,16 +22,24 @@ args = parser.parse_args()
 target = SkyCoord.from_name(args.source)
 
 print("Target RA=",target.ra," Dec=",target.dec)
+print(target.ra.hour,target.dec.degree)
 # Parkes and GBO lat/long
 
 if args.mwa:
 	tel2name = 'MWA'
 	tel2 = EarthLocation(lat=-26.7*u.deg, lon=116.7*u.deg, height=377*u.m)
 	tel2utcoffset = 8*u.hour
+	tel2azlim = 30.
+elif args.ata:
+	tel2name = 'ATA'
+	tel2 = EarthLocation(lat=40.8*u.deg, lon=-121.5*u.deg, height=986*u.m)
+	tel2utcoffset = -8*u.hour
+	tel2azlim = 18.
 else:
 	tel2name = 'Parkes'
 	tel2 = EarthLocation(lat=-33.1*u.deg, lon=148.2*u.deg, height=324*u.m)
 	tel2utcoffset = 10*u.hour # tel2 UTC offset
+	tel2azlim = 30.
 
 gbo = EarthLocation(lat=38.4*u.deg, lon=-79.8*u.deg, height=808*u.m)
 
@@ -72,24 +81,29 @@ targetaltazs_tel2 = target.transform_to(altazframe_tel2)
 # can compute Sun altitude too if desired
 #sunaltazs = get_sun(times).transform_to(altazframe)
 alts = targetaltazs_tel2.alt
-# find times where the altitude crosses 30 degrees (elevation limit at tel2)
-altz = alts.deg - 30.
-altzc = delta_midnight[np.where(altz[:-1] * altz[1:] < 0)]
+# find times where the altitude crosses tel2azlim degrees (elevation limit at tel2)
+altz = alts.deg - tel2azlim
+#altzc = delta_midnight[np.where(altz[:-1] * altz[1:] < 0)]
 try:
-	altz1t = min(altzc)
-	altz2t = max(altzc)
+	for t, a1, a2 in zip(delta_midnight,altz[:-1],altz[1:]):
+		if a1 < 0 and a2 > 0:
+			altz1t = t
+		if a1 > 0 and a2 < 0:
+			altz2t = t
+#	altz1t = min(altzc)
+#	altz2t = max(altzc)
 	altz1 = str(TimeDelta(altz1t, format='sec').to_datetime())
 	altz2 = str(TimeDelta(altz2t, format='sec').to_datetime())
-	print("Target crosses 30 degrees at %s at %s %s and %s" % (tel2name, tzone, altz1,altz2))
+	print("Target crosses %d degrees at %s at %s %s (rising) and %s (setting)" % (tel2azlim, tel2name, tzone, altz1,altz2))
 except:
 	altz1 = 0 * u.h
 	altz2 = 24 * u.h
-	print("Target never crosses 30 degrees at",tel2name)
+	print("Target never crosses %d degrees at",tel2azlim, tel2name)
 
 fig1 = plt.figure(args.source, figsize=(10,4))
 ax1 = fig1.add_subplot(121)
 plt.plot(delta_midnight, alts)
-#plt.xticks(range(0, 24, 1))
+plt.xticks(range(0, 25, 2))
 # can plot Sun altitude too if desired
 #plt.plot(delta_midnight, sunaltazs.alt, color='y', label='Sun')
 plt.xlim(0, 24) # time 0 - 24 hours
@@ -98,7 +112,7 @@ plt.xlabel(tzone)
 plt.ylabel('Altitude [deg]')
 plt.title(tel2name)
 ax1.add_patch(patches.Rectangle(
-        (0., 0.), 24, 30,
+        (0., 0.), 24, tel2azlim,
         hatch='/', fill=False))
 #ax1.add_patch(patches.Rectangle(
 #        (0., 0.), altz1 / u.h, 30,
@@ -112,13 +126,19 @@ altazframe_gbo = AltAz(obstime=times, location=gbo)
 targetaltazs_gbo = target.transform_to(altazframe_gbo)
 alts = targetaltazs_gbo.alt
 altz = alts.deg - 5.
-altzc = delta_midnight[np.where(altz[:-1] * altz[1:] < 0)]
+#altzc = delta_midnight[np.where(altz[:-1] * altz[1:] < 0)]
+
 try:
-	altz1t = min(altzc)
-	altz2t = max(altzc)
+	for t, a1, a2 in zip(delta_midnight,altz[:-1],altz[1:]):
+		if a1 < 0 and a2 > 0:
+			altz1t = t
+		if a1 > 0 and a2 < 0:
+			altz2t = t
+#	altz1t = min(altzc)
+#	altz2t = max(altzc)
 	altz1 = str(TimeDelta(altz1t, format='sec').to_datetime())
 	altz2 = str(TimeDelta(altz2t, format='sec').to_datetime())
-	print("Target crosses 5 degrees at GBO at %s %s and %s" % (tzone, altz1,altz2))
+	print("Target crosses 5 degrees at GBO at %s %s (rising) and %s (setting)" % (tzone, altz1,altz2))
 except:
 	altz1 = 0 * u.h
 	altz2 = 24 * u.h
@@ -127,6 +147,7 @@ except:
 #fig2 = plt.figure(2)
 ax2 = fig1.add_subplot(122)
 plt.plot(delta_midnight, alts)
+plt.xticks(range(0, 25, 2))
 plt.xlim(0, 24)
 plt.ylim(0, 90)
 plt.xlabel(tzone)
